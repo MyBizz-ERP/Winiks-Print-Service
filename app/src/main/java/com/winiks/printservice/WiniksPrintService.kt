@@ -2,6 +2,8 @@ package com.winiks.printservice
 
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.print.PrintAttributes
 import android.print.PrinterId
@@ -10,7 +12,10 @@ import android.printservice.PrintJob
 import android.printservice.PrintService
 import android.printservice.PrinterDiscoverySession
 import android.util.Log
+import android.widget.Toast
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileOutputStream
 
 class WiniksPrintService : PrintService() {
 
@@ -102,26 +107,37 @@ class WiniksPrintService : PrintService() {
                     combinedPayload.write(EscPosHelper.OPEN_CASH_DRAWER)
                 }
 
-                // 2. Render each page of PDF to 1-bit ESC/POS Raster
-                val pfd = ParcelFileDescriptor.dup(data.fileDescriptor)
-                val pdfRenderer = PdfRenderer(pfd)
+                // 2. Stream incoming pipe to a seekable temporary cache file (Required for PdfRenderer on Android)
+                val tempFile = File(cacheDir, "job_${System.currentTimeMillis()}.pdf")
+                try {
+                    ParcelFileDescriptor.AutoCloseInputStream(data).use { input ->
+                        FileOutputStream(tempFile).use { output ->
+                            input.copyTo(output)
+                        }
+                    }
 
-                for (pageIndex in 0 until pdfRenderer.pageCount) {
-                    val page = pdfRenderer.openPage(pageIndex)
-                    val aspectRatio = page.height.toFloat() / page.width.toFloat()
-                    val renderHeight = (finalWidthDots * aspectRatio).toInt()
+                    val pfd = ParcelFileDescriptor.open(tempFile, ParcelFileDescriptor.MODE_READ_ONLY)
+                    val pdfRenderer = PdfRenderer(pfd)
 
-                    val bitmap = Bitmap.createBitmap(finalWidthDots, renderHeight, Bitmap.Config.ARGB_8888)
-                    page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
-                    page.close()
+                    for (pageIndex in 0 until pdfRenderer.pageCount) {
+                        val page = pdfRenderer.openPage(pageIndex)
+                        val aspectRatio = page.height.toFloat() / page.width.toFloat()
+                        val renderHeight = (finalWidthDots * aspectRatio).toInt()
 
-                    val rasterBytes = EscPosHelper.bitmapToEscPosRaster(bitmap, finalWidthDots)
-                    combinedPayload.write(rasterBytes)
-                    bitmap.recycle()
+                        val bitmap = Bitmap.createBitmap(finalWidthDots, renderHeight, Bitmap.Config.ARGB_8888)
+                        page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
+                        page.close()
+
+                        val rasterBytes = EscPosHelper.bitmapToEscPosRaster(bitmap, finalWidthDots)
+                        combinedPayload.write(rasterBytes)
+                        bitmap.recycle()
+                    }
+
+                    pdfRenderer.close()
+                    pfd.close()
+                } finally {
+                    try { tempFile.delete() } catch (_: Exception) {}
                 }
-
-                pdfRenderer.close()
-                pfd.close()
 
                 // 3. Feed blank lines
                 combinedPayload.write(EscPosHelper.feedLines(feedLines))
@@ -143,12 +159,20 @@ class WiniksPrintService : PrintService() {
                     printJob.complete()
                     Log.i(TAG, "Print job completed successfully")
                 } else {
-                    printJob.fail("Bluetooth transmission failed. Ensure printer is turned on and paired.")
+                    val err = "Bluetooth transmission failed. Ensure printer is turned ON, nearby, and paired."
+                    printJob.fail(err)
+                    Handler(Looper.getMainLooper()).post {
+                        Toast.makeText(applicationContext, "WINIKS Print: $err", Toast.LENGTH_LONG).show()
+                    }
                 }
 
             } catch (e: Exception) {
                 Log.e(TAG, "Error executing print job", e)
-                printJob.fail(e.message ?: "Unknown print error")
+                val errMsg = e.message ?: "Unknown print error"
+                printJob.fail(errMsg)
+                Handler(Looper.getMainLooper()).post {
+                    Toast.makeText(applicationContext, "WINIKS Print Error: $errMsg", Toast.LENGTH_LONG).show()
+                }
             }
         }.start()
     }

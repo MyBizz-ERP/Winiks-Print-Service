@@ -42,8 +42,29 @@ object BluetoothPrintManager {
             // Cancel discovery before connecting as it slows down connection
             try { adapter.cancelDiscovery() } catch (_: Exception) {}
 
-            socket = device.createRfcommSocketToServiceRecord(SPP_UUID)
-            socket.connect()
+            // Try 1: Insecure RFCOMM (compatible with 99% of POS Bluetooth printers)
+            socket = try {
+                device.createInsecureRfcommSocketToServiceRecord(SPP_UUID)
+            } catch (e1: Exception) {
+                try {
+                    device.createRfcommSocketToServiceRecord(SPP_UUID)
+                } catch (e2: Exception) {
+                    val m = device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
+                    m.invoke(device, 1) as BluetoothSocket
+                }
+            }
+
+            try {
+                socket.connect()
+            } catch (connEx: Exception) {
+                Log.w(TAG, "Primary connect failed, trying reflection fallback: ${connEx.message}")
+                try {
+                    socket.close()
+                } catch (_: Exception) {}
+                val m = device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
+                socket = m.invoke(device, 1) as BluetoothSocket
+                socket.connect()
+            }
 
             outputStream = socket.outputStream
 
