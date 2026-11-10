@@ -1,0 +1,21 @@
+<resources>
+    <string name="app_name">WINIKS Print Service</string>
+    <string name="print_service_label">WINIKS Thermal POS Print Service</string>
+    <string name="status_ready">Status: Ready for Connection</string>
+    <string name="status_connected">Connected: %s</string>
+    <string name="status_disconnected">Status: No Printer Selected</string>
+    <string name="btn_select_printer">Set Preferred Printer</string>
+    <string name="btn_test_print">Test Printer</string>
+    <string name="btn_open_settings">Enable in Android Settings</string>
+    <string name="header_printer_size">Printer Paper Size</string>
+    <string name="size_58mm">2 Inch (58mm)</string>
+    <string name="size_80mm">3 Inch (80mm) [Recommended]</string>
+    <string name="size_104mm">4 Inch (104mm)</string>
+    <string name="header_advanced">Advanced Print Settings</string>
+    <string name="auto_cut">Auto Cut Paper at End of Job (GS V 0)</string>
+    <string name="open_drawer">Open Cash Drawer on Print</string>
+    <string name="auto_close">Auto Close after Print Job</string>
+    <string name="feed_lines">Blank Lines to Feed before Cut: %d</string>
+    <string name="width_scale">Width Scale: %d%%</string>
+</resources>
+

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<print-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:settingsActivity="com.winiks.printservice.MainActivity"
+    android:addPrintersActivity="com.winiks.printservice.MainActivity"
+    android:advancedPrintOptionsActivity="com.winiks.printservice.MainActivity" />
+
