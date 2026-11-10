@@ -43,30 +43,33 @@ object BluetoothPrintManager {
             try { adapter.cancelDiscovery() } catch (_: Exception) {}
 
             // Try 1: Insecure RFCOMM (compatible with 99% of POS Bluetooth printers)
-            socket = try {
+            val initialSocket: BluetoothSocket? = try {
                 device.createInsecureRfcommSocketToServiceRecord(SPP_UUID)
             } catch (e1: Exception) {
                 try {
                     device.createRfcommSocketToServiceRecord(SPP_UUID)
                 } catch (e2: Exception) {
                     val m = device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
-                    m.invoke(device, 1) as BluetoothSocket
+                    m.invoke(device, 1) as? BluetoothSocket
                 }
             }
 
+            socket = initialSocket
+
             try {
-                socket.connect()
+                socket?.connect()
             } catch (connEx: Exception) {
                 Log.w(TAG, "Primary connect failed, trying reflection fallback: ${connEx.message}")
                 try {
-                    socket.close()
+                    socket?.close()
                 } catch (_: Exception) {}
                 val m = device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
-                socket = m.invoke(device, 1) as BluetoothSocket
-                socket.connect()
+                socket = m.invoke(device, 1) as? BluetoothSocket
+                socket?.connect()
             }
 
-            outputStream = socket.outputStream
+            val connectedSocket = socket ?: return false
+            outputStream = connectedSocket.outputStream
 
             // Send in safe 512-byte chunks to prevent Bluetooth buffer overflow on thermal printers
             val chunkSize = 512
