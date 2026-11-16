@@ -38,6 +38,68 @@ class MainActivity : AppCompatActivity() {
         checkPermissions()
         loadPreferences()
         setupListeners()
+        handleDeepLink(intent)
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleDeepLink(intent)
+    }
+
+    private fun handleDeepLink(intent: Intent?) {
+        val uri = intent?.data ?: return
+        if (uri.scheme == "winiksprint") {
+            val mac = prefs.getString(WiniksPrintService.KEY_MAC, "") ?: ""
+            if (mac.isBlank()) {
+                Toast.makeText(this, "WINIKS Print: Please select a preferred Bluetooth printer first", Toast.LENGTH_LONG).show()
+                return
+            }
+
+            val rawBase64 = uri.getQueryParameter("base64")
+            val rawText = uri.getQueryParameter("text")
+
+            Toast.makeText(this, "WINIKS Direct Print: Sending to printer...", Toast.LENGTH_SHORT).show()
+
+            Thread {
+                val bytes: ByteArray = when {
+                    !rawBase64.isNullOrBlank() -> {
+                        try {
+                            android.util.Base64.decode(rawBase64, android.util.Base64.DEFAULT)
+                        } catch (e: Exception) {
+                            null
+                        }
+                    }
+                    !rawText.isNullOrBlank() -> {
+                        rawText.toByteArray(Charsets.UTF_8)
+                    }
+                    else -> null
+                } ?: run {
+                    val paperSize = prefs.getString(WiniksPrintService.KEY_SIZE, "80") ?: "80"
+                    val widthDots = if (paperSize == "58") 384 else 576
+                    val testBitmap = EscPosHelper.createTestReceiptBitmap(widthDots)
+                    val raster = EscPosHelper.bitmapToEscPosRaster(testBitmap, widthDots)
+                    val feed = EscPosHelper.feedLines(2)
+                    val cut = EscPosHelper.FULL_CUT
+                    raster + feed + cut
+                }
+
+                val autoCut = prefs.getBoolean(WiniksPrintService.KEY_AUTO_CUT, true)
+                val feedLines = prefs.getInt(WiniksPrintService.KEY_FEED_LINES, 2)
+                val finalPayload = bytes + EscPosHelper.feedLines(feedLines) + (if (autoCut) EscPosHelper.FULL_CUT else byteArrayOf())
+
+                val success = BluetoothPrintManager.sendBytesToPrinter(this, mac, finalPayload, 3000)
+
+                runOnUiThread {
+                    if (success) {
+                        Toast.makeText(this, "WINIKS Direct Print: Success!", Toast.LENGTH_SHORT).show()
+                        finish()
+                    } else {
+                        Toast.makeText(this, "WINIKS Direct Print: Bluetooth failed. Ensure printer is ON.", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }.start()
+        }
     }
 
     private fun checkPermissions() {

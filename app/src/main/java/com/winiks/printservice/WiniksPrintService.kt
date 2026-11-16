@@ -34,14 +34,17 @@ class WiniksPrintService : PrintService() {
 
     override fun onCreatePrinterDiscoverySession(): PrinterDiscoverySession {
         return object : PrinterDiscoverySession() {
-            override fun onStartPrinterDiscovery(priorityList: MutableList<PrinterId>) {
+            private fun getPrinterInfo(): PrinterInfo {
                 val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
                 val printerName = prefs.getString(KEY_NAME, "WINIKS Thermal POS") ?: "WINIKS Thermal POS"
+                val mac = prefs.getString(KEY_MAC, "") ?: ""
                 val printerId = generatePrinterId("winiks_default_thermal")
 
-                val printerInfo = PrinterInfo.Builder(
+                val displayName = if (mac.isNotBlank()) "$printerName ($mac)" else printerName
+
+                return PrinterInfo.Builder(
                     printerId,
-                    printerName,
+                    displayName,
                     PrinterInfo.STATUS_IDLE
                 )
                     .setDescription("WINIKS Enterprise Direct Bluetooth Thermal Driver")
@@ -54,13 +57,22 @@ class WiniksPrintService : PrintService() {
                             .build()
                     )
                     .build()
+            }
 
-                addPrinters(listOf(printerInfo))
+            override fun onStartPrinterDiscovery(priorityList: MutableList<PrinterId>) {
+                addPrinters(listOf(getPrinterInfo()))
             }
 
             override fun onStopPrinterDiscovery() {}
-            override fun onValidatePrinters(printerIds: MutableList<PrinterId>) {}
-            override fun onStartPrinterStateTracking(printerId: PrinterId) {}
+
+            override fun onValidatePrinters(printerIds: MutableList<PrinterId>) {
+                addPrinters(listOf(getPrinterInfo()))
+            }
+
+            override fun onStartPrinterStateTracking(printerId: PrinterId) {
+                addPrinters(listOf(getPrinterInfo()))
+            }
+
             override fun onStopPrinterStateTracking(printerId: PrinterId) {}
             override fun onDestroy() {}
         }
