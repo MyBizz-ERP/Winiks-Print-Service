@@ -44,15 +44,7 @@ class WiniksPrintService : PrintService() {
 
     override fun onCreatePrinterDiscoverySession(): PrinterDiscoverySession {
         return object : PrinterDiscoverySession() {
-            private fun getPrinterInfo(): PrinterInfo {
-                val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-                val printerName = prefs.getString(KEY_NAME, "WINIKS Thermal POS") ?: "WINIKS Thermal POS"
-                val mac = prefs.getString(KEY_MAC, "") ?: ""
-                val paperSize = prefs.getString(KEY_SIZE, "80") ?: "80"
-                val printerId = generatePrinterId("winiks_default_thermal")
-
-                val displayName = if (mac.isNotBlank()) "$printerName ($mac)" else printerName
-
+            private fun buildPrinterInfo(printerId: PrinterId, displayName: String, paperSize: String): PrinterInfo {
                 return PrinterInfo.Builder(
                     printerId,
                     displayName,
@@ -66,23 +58,62 @@ class WiniksPrintService : PrintService() {
                             .addMediaSize(PrintAttributes.MediaSize.ISO_A4, false)
                             .addResolution(PrintAttributes.Resolution("203DPI", "203 dpi", 203, 203), true)
                             .setColorModes(PrintAttributes.COLOR_MODE_MONOCHROME, PrintAttributes.COLOR_MODE_MONOCHROME)
+                            .setMinMargins(PrintAttributes.Margins(0, 0, 0, 0))
                             .build()
                     )
                     .build()
             }
 
+            private fun getDiscoveredPrinters(): List<PrinterInfo> {
+                val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                val prefName = prefs.getString(KEY_NAME, "WINIKS Thermal POS") ?: "WINIKS Thermal POS"
+                val prefMac = prefs.getString(KEY_MAC, "") ?: ""
+                val paperSize = prefs.getString(KEY_SIZE, "80") ?: "80"
+
+                val list = mutableListOf<PrinterInfo>()
+
+                // 1. Configured Preferred Printer
+                if (prefMac.isNotBlank()) {
+                    val pId = generatePrinterId(prefMac)
+                    list.add(buildPrinterInfo(pId, "$prefName ($prefMac)", paperSize))
+                }
+
+                // 2. Bonded Bluetooth Devices
+                try {
+                    val btAdapter = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
+                    if (btAdapter != null && btAdapter.isEnabled) {
+                        for (dev in btAdapter.bondedDevices) {
+                            if (dev.address != prefMac) {
+                                val pId = generatePrinterId(dev.address)
+                                val dName = dev.name ?: "Thermal Printer"
+                                list.add(buildPrinterInfo(pId, "$dName (${dev.address})", paperSize))
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error enumerating bonded bluetooth printers", e)
+                }
+
+                if (list.isEmpty()) {
+                    val fallbackId = generatePrinterId("winiks_default_thermal")
+                    list.add(buildPrinterInfo(fallbackId, prefName, paperSize))
+                }
+
+                return list
+            }
+
             override fun onStartPrinterDiscovery(priorityList: MutableList<PrinterId>) {
-                addPrinters(listOf(getPrinterInfo()))
+                addPrinters(getDiscoveredPrinters())
             }
 
             override fun onStopPrinterDiscovery() {}
 
             override fun onValidatePrinters(printerIds: MutableList<PrinterId>) {
-                addPrinters(listOf(getPrinterInfo()))
+                addPrinters(getDiscoveredPrinters())
             }
 
             override fun onStartPrinterStateTracking(printerId: PrinterId) {
-                addPrinters(listOf(getPrinterInfo()))
+                addPrinters(getDiscoveredPrinters())
             }
 
             override fun onStopPrinterStateTracking(printerId: PrinterId) {}
@@ -91,18 +122,32 @@ class WiniksPrintService : PrintService() {
     }
 
     override fun onRequestCancelPrintJob(printJob: PrintJob) {
-        printJob.cancel()
+        Handler(Looper.getMainLooper()).post {
+            try {
+                printJob.cancel()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error cancelling print job", e)
+            }
+        }
     }
 
     override fun onPrintJobQueued(printJob: PrintJob) {
         if (!printJob.isQueued) return
 
-        printJob.start()
+        Handler(Looper.getMainLooper()).post {
+            try {
+                if (printJob.isQueued) {
+                    printJob.start()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error starting print job on main thread", e)
+            }
+        }
 
         Thread {
             try {
                 val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-                val mac = prefs.getString(KEY_MAC, "") ?: ""
+                var mac = prefs.getString(KEY_MAC, "") ?: ""
                 val paperSize = prefs.getString(KEY_SIZE, "80") ?: "80"
                 val autoCut = prefs.getBoolean(KEY_AUTO_CUT, true)
                 val feedLines = prefs.getInt(KEY_FEED_LINES, 2)
@@ -110,14 +155,30 @@ class WiniksPrintService : PrintService() {
                 val scalePercent = prefs.getInt(KEY_SCALE, 100)
                 val disconnectDelay = prefs.getInt(KEY_DISCONNECT_DELAY, 4000).toLong()
 
+                // Fallback: If no preferred printer is set in prefs, use the localId from PrinterId
                 if (mac.isBlank()) {
-                    printJob.fail("No preferred Bluetooth printer configured in WINIKS Print Service")
+                    val localId = printJob.info.printerId.localId
+                    if (android.bluetooth.BluetoothAdapter.checkBluetoothAddress(localId)) {
+                        mac = localId
+                    }
+                }
+
+                if (mac.isBlank()) {
+                    Handler(Looper.getMainLooper()).post {
+                        try {
+                            printJob.fail("No Bluetooth printer selected. Please pair in WINIKS Print Service.")
+                        } catch (_: Exception) {}
+                    }
                     return@Thread
                 }
 
                 val doc = printJob.document
                 val data = doc?.data ?: run {
-                    printJob.fail("Document data is null")
+                    Handler(Looper.getMainLooper()).post {
+                        try {
+                            printJob.fail("Document data is null")
+                        } catch (_: Exception) {}
+                    }
                     return@Thread
                 }
 
@@ -179,13 +240,19 @@ class WiniksPrintService : PrintService() {
                     disconnectDelay
                 )
 
-                if (success) {
-                    printJob.complete()
-                    Log.i(TAG, "Print job completed successfully")
-                } else {
-                    val err = "Bluetooth transmission failed. Ensure printer is turned ON, nearby, and paired."
-                    printJob.fail(err)
-                    Handler(Looper.getMainLooper()).post {
+                Handler(Looper.getMainLooper()).post {
+                    if (success) {
+                        try {
+                            printJob.complete()
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error completing print job", e)
+                        }
+                        Log.i(TAG, "Print job completed successfully")
+                    } else {
+                        val err = "Bluetooth transmission failed. Ensure printer is ON and paired."
+                        try {
+                            printJob.fail(err)
+                        } catch (_: Exception) {}
                         Toast.makeText(applicationContext, "WINIKS Print: $err", Toast.LENGTH_LONG).show()
                     }
                 }
@@ -193,8 +260,10 @@ class WiniksPrintService : PrintService() {
             } catch (e: Exception) {
                 Log.e(TAG, "Error executing print job", e)
                 val errMsg = e.message ?: "Unknown print error"
-                printJob.fail(errMsg)
                 Handler(Looper.getMainLooper()).post {
+                    try {
+                        printJob.fail(errMsg)
+                    } catch (_: Exception) {}
                     Toast.makeText(applicationContext, "WINIKS Print Error: $errMsg", Toast.LENGTH_LONG).show()
                 }
             }

@@ -41,7 +41,7 @@
             </intent-filter>
         </activity>
 
-        <!-- Official Android Print Service -->
+        <!-- Official Android Print Service (Pure System Plugin, zero crash metadata) -->
         <service
             android:name=".WiniksPrintService"
             android:exported="true"
@@ -50,9 +50,6 @@
             <intent-filter>
                 <action android:name="android.printservice.PrintService" />
             </intent-filter>
-            <meta-data
-                android:name="android.printservice"
-                android:resource="@xml/printservice" />
         </service>
 
     </application>
