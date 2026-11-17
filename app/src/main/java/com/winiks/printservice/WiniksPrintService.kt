@@ -32,12 +32,23 @@ class WiniksPrintService : PrintService() {
         const val KEY_DISCONNECT_DELAY = "pref_disconnect_delay"
     }
 
+    override fun onConnected() {
+        super.onConnected()
+        Log.i(TAG, "WiniksPrintService: onConnected() - Service bound to Android Print Spooler")
+    }
+
+    override fun onDisconnected() {
+        super.onDisconnected()
+        Log.i(TAG, "WiniksPrintService: onDisconnected() - Service unbound from Android Print Spooler")
+    }
+
     override fun onCreatePrinterDiscoverySession(): PrinterDiscoverySession {
         return object : PrinterDiscoverySession() {
             private fun getPrinterInfo(): PrinterInfo {
                 val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
                 val printerName = prefs.getString(KEY_NAME, "WINIKS Thermal POS") ?: "WINIKS Thermal POS"
                 val mac = prefs.getString(KEY_MAC, "") ?: ""
+                val paperSize = prefs.getString(KEY_SIZE, "80") ?: "80"
                 val printerId = generatePrinterId("winiks_default_thermal")
 
                 val displayName = if (mac.isNotBlank()) "$printerName ($mac)" else printerName
@@ -50,8 +61,9 @@ class WiniksPrintService : PrintService() {
                     .setDescription("WINIKS Enterprise Direct Bluetooth Thermal Driver")
                     .setCapabilities(
                         android.print.PrinterCapabilitiesInfo.Builder(printerId)
+                            .addMediaSize(PrintAttributes.MediaSize("ROLL_80MM", "80mm Roll", 3150, 11811), paperSize != "58")
+                            .addMediaSize(PrintAttributes.MediaSize("ROLL_58MM", "58mm Roll", 2283, 11811), paperSize == "58")
                             .addMediaSize(PrintAttributes.MediaSize.ISO_A4, false)
-                            .addMediaSize(PrintAttributes.MediaSize("ROLL_80MM", "80mm Roll", 3150, 11811), true)
                             .addResolution(PrintAttributes.Resolution("203DPI", "203 dpi", 203, 203), true)
                             .setColorModes(PrintAttributes.COLOR_MODE_MONOCHROME, PrintAttributes.COLOR_MODE_MONOCHROME)
                             .build()
