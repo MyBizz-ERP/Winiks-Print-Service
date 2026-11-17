@@ -157,8 +157,8 @@ class WiniksPrintService : PrintService() {
 
                 // Fallback: If no preferred printer is set in prefs, use the localId from PrinterId
                 if (mac.isBlank()) {
-                    val localId = printJob.info.printerId.localId
-                    if (android.bluetooth.BluetoothAdapter.checkBluetoothAddress(localId)) {
+                    val localId = printJob.info.printerId?.localId ?: ""
+                    if (localId.isNotBlank() && android.bluetooth.BluetoothAdapter.checkBluetoothAddress(localId)) {
                         mac = localId
                     }
                 }
