@@ -65,7 +65,17 @@ class MainActivity : AppCompatActivity() {
                 val bytes: ByteArray = when {
                     !rawBase64.isNullOrBlank() -> {
                         try {
-                            android.util.Base64.decode(rawBase64, android.util.Base64.DEFAULT)
+                            val decoded = android.util.Base64.decode(rawBase64, android.util.Base64.DEFAULT)
+                            val bmp = android.graphics.BitmapFactory.decodeByteArray(decoded, 0, decoded.size)
+                            if (bmp != null) {
+                                val paperSize = prefs.getString(WiniksPrintService.KEY_SIZE, "80") ?: "80"
+                                val widthDots = if (paperSize == "58") 384 else 576
+                                val raster = EscPosHelper.bitmapToEscPosRaster(bmp, widthDots)
+                                bmp.recycle()
+                                raster
+                            } else {
+                                decoded
+                            }
                         } catch (e: Exception) {
                             null
                         }
