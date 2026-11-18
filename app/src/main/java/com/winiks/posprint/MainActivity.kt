@@ -4,11 +4,16 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
+import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.print.PrintManager
 import android.provider.Settings
 import android.widget.SeekBar
 import android.widget.Toast
@@ -39,7 +44,13 @@ class MainActivity : AppCompatActivity() {
         checkPermissions()
         loadPreferences()
         setupListeners()
+        updateServiceStatus()
         handleDeepLink(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        updateServiceStatus()
     }
 
     override fun onNewIntent(intent: Intent?) {
@@ -276,15 +287,65 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.btnOpenSettings.setOnClickListener {
-            try {
-                startActivity(Intent(Settings.ACTION_PRINT_SETTINGS))
-            } catch (_: Exception) {
+            if (isPrintServiceEnabled()) {
+                Toast.makeText(this, "✅ WINIKS Print Service is active! Ready to print from ERP.", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            val isXiaomi = Build.MANUFACTURER.equals("Xiaomi", ignoreCase = true) ||
+                    Build.MANUFACTURER.equals("Redmi", ignoreCase = true) ||
+                    Build.MANUFACTURER.equals("POCO", ignoreCase = true)
+
+            if (isXiaomi) {
+                AlertDialog.Builder(this)
+                    .setTitle("Enable WINIKS Print Service")
+                    .setMessage("In Xiaomi / HyperOS Settings:\n\n1. Tap 'Open Settings' below\n2. Go to 'Connection & sharing' (or 'More connections')\n3. Tap 'Printing'\n4. Select 'WINIKS Thermal POS Service' and turn it ON.")
+                    .setPositiveButton("Open Settings") { _, _ ->
+                        try {
+                            startActivity(Intent(Settings.ACTION_SETTINGS))
+                        } catch (_: Exception) {
+                            Toast.makeText(this, "Open phone Settings -> Connection & sharing -> Printing", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            } else {
                 try {
-                    startActivity(Intent(Settings.ACTION_SETTINGS))
+                    startActivity(Intent(Settings.ACTION_PRINT_SETTINGS))
                 } catch (_: Exception) {
-                    Toast.makeText(this, "Go to Settings -> Printing to manage print services.", Toast.LENGTH_LONG).show()
+                    try {
+                        startActivity(Intent(Settings.ACTION_SETTINGS))
+                    } catch (_: Exception) {
+                        Toast.makeText(this, "Go to Settings -> Printing to manage print services.", Toast.LENGTH_LONG).show()
+                    }
                 }
             }
+        }
+    }
+
+    private fun isPrintServiceEnabled(): Boolean {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                val pm = getSystemService(Context.PRINT_SERVICE) as? PrintManager
+                pm?.isPrintServiceEnabled(ComponentName(this, WiniksPrintService::class.java)) ?: false
+            } else {
+                val enabled = Settings.Secure.getString(contentResolver, "enabled_print_services") ?: ""
+                enabled.contains(packageName)
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    @SuppressLint("SetTextI18n")
+    private fun updateServiceStatus() {
+        val active = isPrintServiceEnabled()
+        if (active) {
+            binding.btnOpenSettings.text = "✅ Print Service is Active & Ready"
+            binding.btnOpenSettings.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#10B981"))
+        } else {
+            binding.btnOpenSettings.text = "Enable in Android Settings"
+            binding.btnOpenSettings.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#059669"))
         }
     }
 }
