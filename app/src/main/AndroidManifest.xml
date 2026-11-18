@@ -41,6 +41,17 @@
             </intent-filter>
         </activity>
 
+        <!-- Official Print Service Settings Activity -->
+        <activity
+            android:name=".SettingsActivity"
+            android:label="WINIKS Print Settings"
+            android:exported="true"
+            android:theme="@style/Theme.WiniksPrintService">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+            </intent-filter>
+        </activity>
+
         <!-- Official Android Print Service -->
         <service
             android:name=".WiniksPrintService"
