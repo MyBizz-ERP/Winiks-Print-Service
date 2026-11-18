@@ -25,30 +25,21 @@
 
         <activity
             android:name=".MainActivity"
+            android:label="WINIKS Print Service"
             android:exported="true"
             android:launchMode="singleTop"
             android:theme="@style/Theme.WiniksPrintService">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
-            <!-- Direct Deep Link Print Receiver (bypasses Android PrintSpooler completely) -->
+            <!-- Direct Deep Link Print Receiver (bypasses Android PrintSpooler completely if invoked directly) -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="winiksprint" />
-            </intent-filter>
-        </activity>
-
-        <!-- Official Print Service Settings Activity -->
-        <activity
-            android:name=".SettingsActivity"
-            android:label="WINIKS Print Settings"
-            android:exported="true"
-            android:theme="@style/Theme.WiniksPrintService">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
             </intent-filter>
         </activity>
 
@@ -69,4 +60,3 @@
     </application>
 
 </manifest>
-
