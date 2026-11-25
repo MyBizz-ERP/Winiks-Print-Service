@@ -61,14 +61,25 @@ class MainActivity : AppCompatActivity() {
 
     private fun handleDeepLink(intent: Intent?) {
         val uri = intent?.data ?: return
-        if (uri.scheme == "winiksprint") {
+        val scheme = uri.scheme ?: return
+        if (scheme == "winiksprint" || scheme == "rawbt") {
             val mac = prefs.getString(WiniksPrintService.KEY_MAC, "") ?: ""
             if (mac.isBlank()) {
                 Toast.makeText(this, "WINIKS Print: Please select a preferred Bluetooth printer first", Toast.LENGTH_LONG).show()
                 return
             }
 
-            val rawBase64 = uri.getQueryParameter("base64")
+            var rawBase64 = uri.getQueryParameter("base64")
+            if (rawBase64.isNullOrBlank()) {
+                val ssp = uri.schemeSpecificPart ?: ""
+                if (ssp.startsWith("base64,")) {
+                    rawBase64 = ssp.removePrefix("base64,")
+                } else if (ssp.startsWith("//base64,")) {
+                    rawBase64 = ssp.removePrefix("//base64,")
+                } else if (ssp.contains("base64=")) {
+                    rawBase64 = ssp.substringAfter("base64=").substringBefore("&")
+                }
+            }
             val rawText = uri.getQueryParameter("text")
 
             Toast.makeText(this, "WINIKS Direct Print: Sending to printer...", Toast.LENGTH_SHORT).show()
