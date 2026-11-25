@@ -142,14 +142,17 @@ class WiniksPrintService : PrintService() {
     override fun onPrintJobQueued(printJob: PrintJob) {
         if (!printJob.isQueued) return
 
-        Handler(Looper.getMainLooper()).post {
-            try {
-                if (printJob.isQueued) {
-                    printJob.start()
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error starting print job on main looper", e)
-            }
+        // 1. MUST start job synchronously on main thread so getDocument() is valid!
+        val started = try {
+            printJob.start()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start print job on main thread", e)
+            false
+        }
+
+        if (!started && !printJob.isStarted) {
+            Log.w(TAG, "printJob could not be transitioned to started (state: ${printJob.info.state})")
+            return
         }
 
         Thread {
@@ -182,6 +185,7 @@ class WiniksPrintService : PrintService() {
 
                 val doc = printJob.document
                 val data = doc?.data ?: run {
+                    Log.e(TAG, "Document data descriptor is null")
                     Handler(Looper.getMainLooper()).post {
                         try {
                             printJob.fail("Document data is null")
@@ -207,6 +211,14 @@ class WiniksPrintService : PrintService() {
                         FileOutputStream(tempFile).use { output ->
                             input.copyTo(output)
                         }
+                    }
+
+                    if (tempFile.length() == 0L) {
+                        Log.e(TAG, "Streamed PDF file is empty (0 bytes)")
+                        Handler(Looper.getMainLooper()).post {
+                            try { printJob.fail("Printed document is empty") } catch (_: Exception) {}
+                        }
+                        return@Thread
                     }
 
                     val pfd = ParcelFileDescriptor.open(tempFile, ParcelFileDescriptor.MODE_READ_ONLY)
