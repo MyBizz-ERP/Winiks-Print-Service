@@ -25,7 +25,9 @@ object EscPosHelper {
 
     /**
      * Converts any Android Bitmap into monochrome 1-bit ESC/POS Raster Bit Image (GS v 0).
-     * This provides 100% visual fidelity for Marathi/English text, tables, logos, and QR codes.
+     * Slices the bitmap into micro-strips (max 128 vertical dots) to ensure 100% compatibility
+     * with low-cost thermal POS printer hardware buffers and prevent RFCOMM Bluetooth drops.
+     * Accurately handles alpha transparency (treats transparent as white background).
      */
     fun bitmapToEscPosRaster(bitmap: Bitmap, targetWidthDots: Int = 576): ByteArray {
         val scale = targetWidthDots.toFloat() / bitmap.width.toFloat()
@@ -39,51 +41,67 @@ object EscPosHelper {
         val out = ByteArrayOutputStream()
         out.write(INIT_PRINTER)
 
-        // GS v 0 m xL xH yL yH
-        val xL = (widthBytes and 0xFF).toByte()
-        val xH = ((widthBytes shr 8) and 0xFF).toByte()
-        val yL = (height and 0xFF).toByte()
-        val yH = ((height shr 8) and 0xFF).toByte()
-
-        val header = byteArrayOf(0x1D, 0x76, 0x30, 0x00, xL, xH, yL, yH)
-        out.write(header)
-
         val pixels = IntArray(width * height)
         scaledBitmap.getPixels(pixels, 0, width, 0, 0, width, height)
 
-        val rawData = ByteArray(widthBytes * height)
-        var byteIndex = 0
+        // Micro-strip slicing (128 dots max per ESC/POS raster block)
+        val maxSliceHeight = 128
         val threshold = 180
 
-        for (y in 0 until height) {
-            var currentByte = 0
-            var bitCount = 0
+        for (startY in 0 until height step maxSliceHeight) {
+            val currentSliceHeight = (height - startY).coerceAtMost(maxSliceHeight)
 
-            for (x in 0 until width) {
-                val pixel = pixels[y * width + x]
-                val r = (pixel shr 16) and 0xFF
-                val g = (pixel shr 8) and 0xFF
-                val b = pixel and 0xFF
-                val luminance = (r * 0.299 + g * 0.587 + b * 0.114).toInt()
+            // GS v 0 m xL xH yL yH
+            val xL = (widthBytes and 0xFF).toByte()
+            val xH = ((widthBytes shr 8) and 0xFF).toByte()
+            val yL = (currentSliceHeight and 0xFF).toByte()
+            val yH = ((currentSliceHeight shr 8) and 0xFF).toByte()
 
-                if (luminance < threshold) {
-                    currentByte = currentByte or (1 shl (7 - bitCount))
+            val header = byteArrayOf(0x1D, 0x76, 0x30, 0x00, xL, xH, yL, yH)
+            out.write(header)
+
+            val sliceData = ByteArray(widthBytes * currentSliceHeight)
+            var byteIndex = 0
+
+            for (y in startY until (startY + currentSliceHeight)) {
+                var currentByte = 0
+                var bitCount = 0
+
+                for (x in 0 until width) {
+                    val pixel = pixels[y * width + x]
+                    val a = (pixel shr 24) and 0xFF
+                    val r = (pixel shr 16) and 0xFF
+                    val g = (pixel shr 8) and 0xFF
+                    val b = pixel and 0xFF
+
+                    // Transparent pixels (a < 128) are strictly background (WHITE - no thermal burn dot)
+                    if (a >= 128) {
+                        val luminance = (r * 0.299 + g * 0.587 + b * 0.114).toInt()
+                        if (luminance < threshold) {
+                            currentByte = currentByte or (1 shl (7 - bitCount))
+                        }
+                    }
+
+                    bitCount++
+                    if (bitCount == 8) {
+                        sliceData[byteIndex++] = currentByte.toByte()
+                        currentByte = 0
+                        bitCount = 0
+                    }
                 }
 
-                bitCount++
-                if (bitCount == 8) {
-                    rawData[byteIndex++] = currentByte.toByte()
-                    currentByte = 0
-                    bitCount = 0
+                if (bitCount > 0) {
+                    sliceData[byteIndex++] = currentByte.toByte()
                 }
             }
 
-            if (bitCount > 0) {
-                rawData[byteIndex++] = currentByte.toByte()
-            }
+            out.write(sliceData)
         }
 
-        out.write(rawData)
+        if (scaledBitmap != bitmap) {
+            scaledBitmap.recycle()
+        }
+
         return out.toByteArray()
     }
 

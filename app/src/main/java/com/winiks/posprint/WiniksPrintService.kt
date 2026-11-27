@@ -166,11 +166,31 @@ class WiniksPrintService : PrintService() {
                 val scalePercent = prefs.getInt(KEY_SCALE, 100)
                 val disconnectDelay = prefs.getInt(KEY_DISCONNECT_DELAY, 2000).toLong()
 
-                // Fallback: If no preferred printer is set in prefs, extract MAC from printerId
+                // Robust MAC Resolution: Check Prefs -> PrinterId -> Bonded Devices Match
                 if (mac.isBlank()) {
                     val localId = printJob.info.printerId?.localId ?: ""
                     if (localId.isNotBlank() && BluetoothAdapter.checkBluetoothAddress(localId)) {
                         mac = localId
+                    } else {
+                        // localId might be device name (e.g. KPC307-UEWB-8D43) - match from bonded devices!
+                        try {
+                            val btAdapter = BluetoothAdapter.getDefaultAdapter()
+                            if (btAdapter != null && btAdapter.isEnabled) {
+                                for (dev in btAdapter.bondedDevices) {
+                                    if (dev.address.equals(localId, ignoreCase = true) ||
+                                        dev.name?.equals(localId, ignoreCase = true) == true ||
+                                        (localId.isNotBlank() && dev.name?.contains(localId, ignoreCase = true) == true)) {
+                                        mac = dev.address
+                                        break
+                                    }
+                                }
+                                if (mac.isBlank() && btAdapter.bondedDevices.isNotEmpty()) {
+                                    mac = btAdapter.bondedDevices.first().address
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Error matching bonded device for print job", e)
+                        }
                     }
                 }
 
